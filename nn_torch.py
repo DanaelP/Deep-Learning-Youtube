@@ -7,16 +7,16 @@ from sklearn.metrics import accuracy_score
 from utilities_torch import *
 from tqdm import tqdm
 
-def initialisation(dimensions, device):
+def initialisation(dimensions, embedding_items, device):
 
     parameters = {}
     g = torch.Generator().manual_seed(2147483647) # for reproducibility
     
-    parameters['E'] = torch.randn((256, 1), generator=g).to(device)
+    parameters['E'] = torch.randn((256, embedding_items), generator=g).to(device)
     C = len(dimensions)
     for c in range(1, C):
-        parameters['W' + str(c)] = torch.randn((dimensions[c], dimensions[c - 1]), generator=g).to(device)
-        parameters['b' + str(c)] = torch.randn((dimensions[c], 1), generator=g).to(device)
+        parameters['W' + str(c)] = torch.randn((dimensions[c], dimensions[c - 1]), generator=g).to(device) * 0.01
+        parameters['b' + str(c)] = torch.randn((dimensions[c], 1), generator=g).to(device) * 0.01
 
     return parameters
 
@@ -26,7 +26,7 @@ def predict(X, parameters):
     A = activations['A' + str(C)]
     return A >= 0.5
 
-def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32), learning_rate=0.1, n_iter=30000, batch_size=32):
+def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (200,32), learning_rate=0.1, n_iter=10000, batch_size=32, embedding_items=1):
 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -42,18 +42,16 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32),
     dimensions.append(batch_size)
     
     # Initialisation
-    parameters = initialisation(dimensions, device)
+    parameters = initialisation(dimensions, embedding_items, device)
 
     # add gradients to tensors for back_propagation
     for p in parameters:
          parameters[p].requires_grad = True
 
-    stepi = []
-    lossi = []
     C = len(parameters) // 2 
-    # train_loss = []
+    train_loss = []
     # train_acc = []
-    # test_loss = []
+    test_loss = []
     # test_acc = []
 
     # Trainning
@@ -64,10 +62,13 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32),
 
         X_train_long = X_train.long()
         y_train_long = y_train.squeeze().long()
+        X_test_long = X_test.long()
+        y_test_long = y_test.squeeze().long()
+
         # print(y_train_long.shape)
 
         emb = parameters['E'][X_train_long[ix]]
-        emb = emb.view(-1, 4096*1)
+        emb = emb.view(-1, 4096*embedding_items)
 
         # if i >= 10000:
         #     learning_rate=0.01
@@ -83,6 +84,19 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32),
             activations['A' + str(c)] = torch.sigmoid(logits['Z' + str(c)])
         loss = F.cross_entropy(logits['Z' + str(C)], y_train_long[ix])
 
+        # if i %10 == 0:
+        train_loss.append(loss.log10().item())
+
+            # emb_test = parameters['E'][X_test_long[ixt]]
+            # emb_test = emb_test.view(-1, 4096*1)
+            # activations_test = {'A0' : emb_test}
+            # for c in range(1, C + 1):
+            #     activations_test['A' + str(c)] = torch.sigmoid(parameters['W' + str(c)] @ activations_test['A' + str(c - 1)] + parameters['b' + str(c)])
+            # test_lossi = F.cross_entropy(logits['Z' + str(C)], y_test_long[ixt])
+            # test_loss.append(test_lossi.log10().item())
+
+
+
         # backward pass
         for p in parameters:
             parameters[p].grad = None
@@ -93,14 +107,23 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32),
             parameters['b' + str(c)].data += - learning_rate * parameters['b' + str(c)].grad
 
 
-        lossi.append(loss.log10().item())
-        stepi.append(i)
         # break
 
     print(loss.log10().item())
-    plt.plot(stepi, lossi)
+    plt.plot(train_loss, label='train loss')
+    # plt.plot(test_loss, label='test loss')
+    plt.legend()
     plt.savefig('graph.png')
     
+    ixt = torch.randint(0, X_test.shape[0], (batch_size,), device=device)
+    emb_test = parameters['E'][X_test_long[ixt]]
+    emb_test = emb_test.view(-1, 4096*embedding_items)
+    activations_test = {'A0' : emb_test}
+    for c in range(1, C + 1):
+        activations_test['A' + str(c)] = torch.sigmoid(parameters['W' + str(c)] @ activations_test['A' + str(c - 1)] + parameters['b' + str(c)])
+    test_lossi = F.cross_entropy(logits['Z' + str(C)], y_test_long[ixt])
+    # test_loss.append(test_lossi.log10().item())
+    print(test_lossi.log10().item())
 
     #
     #     # forward propagation
