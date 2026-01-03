@@ -87,7 +87,8 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32, 32, 32
         if i %100 == 0:
             # Train
             C = len(parametres) // 2
-            train_loss.append(log_loss(y_train, activations['A' + str(C)]))
+            loss=log_loss(y_train, activations['A' + str(C)])
+            train_loss.append(loss)
             y_pred = predict(X_train, parametres)
             train_acc.append(accuracy_score(y_train.flatten(), y_pred.flatten()))
 
@@ -98,6 +99,7 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32, 32, 32
             test_acc.append(accuracy_score(y_test.flatten(), y_pred.flatten()))
 
 
+    print(loss)
     plt.figure(figsize=(14, 4))
 
     plt.subplot(1, 2, 1)
@@ -109,7 +111,7 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32, 32, 32
     plt.plot(train_acc, label='train accuracy')
     plt.plot(test_acc, label='test accuracy')
     plt.legend()
-    plt.show()
+    plt.savefig('graph.png')
 
     return parametres
 
