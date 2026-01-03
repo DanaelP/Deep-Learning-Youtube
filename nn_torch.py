@@ -7,16 +7,16 @@ from sklearn.metrics import accuracy_score
 from utilities_torch import *
 from tqdm import tqdm
 
-def initialisation(dimensions):
+def initialisation(dimensions, device):
 
     parameters = {}
     g = torch.Generator().manual_seed(2147483647) # for reproducibility
-
     
+    parameters['E'] = torch.randn((256, 1), generator=g).to(device)
     C = len(dimensions)
     for c in range(1, C):
-        parameters['W' + str(c)] = torch.randn((dimensions[c], dimensions[c - 1]), generator=g)
-        parameters['b' + str(c)] = torch.randn((dimensions[c], 1), generator=g)
+        parameters['W' + str(c)] = torch.randn((dimensions[c], dimensions[c - 1]), generator=g).to(device)
+        parameters['b' + str(c)] = torch.randn((dimensions[c], 1), generator=g).to(device)
 
     return parameters
 
@@ -26,29 +26,31 @@ def predict(X, parameters):
     A = activations['A' + str(C)]
     return A >= 0.5
 
-def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32), learning_rate=0.1, n_iter=10000, batch_size=32):
+def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32), learning_rate=0.1, n_iter=30000, batch_size=32):
 
-    g = torch.Generator().manual_seed(2147483647) # for reproducibility
-    compress_layer = torch.randn((256, 1), generator=g)
-    compress_layer.require_grad = True
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    X_train = X_train.to(device)
+    y_train = y_train.to(device)
+    X_test = X_test.to(device)
+    y_test = y_test.to(device)
 
     dimensions = list(hidden_layers)
     # dimensions.insert(0, X_train.shape[0])
-    dimensions.insert(0, batch_size)
     # dimensions.append(y_train.shape[0])
+    dimensions.insert(0, batch_size)
     dimensions.append(batch_size)
     
     # Initialisation
-    parameters = initialisation(dimensions)
+    parameters = initialisation(dimensions, device)
 
     # add gradients to tensors for back_propagation
-    C = len(parameters) // 2 
-    for c in range(1, C + 1):
-        parameters['W' + str(c)].requires_grad = True
-        parameters['b' + str(c)].requires_grad = True
+    for p in parameters:
+         parameters[p].requires_grad = True
 
     stepi = []
     lossi = []
+    C = len(parameters) // 2 
     # train_loss = []
     # train_acc = []
     # test_loss = []
@@ -58,13 +60,13 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32),
     for i in tqdm(range(n_iter)):
 
         # Mini batch
-        ix = torch.randint(0, X_train.shape[0], (batch_size,))
+        ix = torch.randint(0, X_train.shape[0], (batch_size,), device=device)
 
         X_train_long = X_train.long()
         y_train_long = y_train.squeeze().long()
         # print(y_train_long.shape)
 
-        emb = compress_layer[X_train_long[ix]]
+        emb = parameters['E'][X_train_long[ix]]
         emb = emb.view(-1, 4096*1)
 
         # if i >= 10000:
@@ -72,7 +74,6 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32),
 
         # init activation
         activations = {'A0' : emb}
-
         logits = {}
         # forward pass
         for c in range(1, C + 1):
@@ -81,12 +82,10 @@ def neural_network(X_train, y_train, X_test, y_test, hidden_layers = (32,32,32),
             logits['Z' + str(c)] = parameters['W' + str(c)] @ activations['A' + str(c - 1)] + parameters['b' + str(c)]
             activations['A' + str(c)] = torch.sigmoid(logits['Z' + str(c)])
         loss = F.cross_entropy(logits['Z' + str(C)], y_train_long[ix])
-        # test_loss.append(F.cross_entropy(logits['Z' + str(C)], y_test))
 
         # backward pass
-        for c in range(1, C + 1):
-            parameters['W' + str(c)].grad = None
-            parameters['b' + str(c)].grad = None
+        for p in parameters:
+            parameters[p].grad = None
         loss.backward()
 
         for c in range(1, C + 1):
